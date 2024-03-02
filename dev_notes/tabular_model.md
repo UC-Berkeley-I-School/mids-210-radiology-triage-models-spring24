@@ -27,3 +27,8 @@ Training set label outputs and rates:
 |------------:|-------------:|-------:|-------------:|-----------------:|----------:|
 |     1451    | 1134         | 927    | 2190         | 1380             | 735       |
 | 12.87%      | 10.06%       | 08.22% | 19.43%       | 12.24%           | 06.52%    |
+
+## Initial Model Build Process
+
+Initial approach is to create a multi-head multi-label classification model, with each head focused on a single class.
+

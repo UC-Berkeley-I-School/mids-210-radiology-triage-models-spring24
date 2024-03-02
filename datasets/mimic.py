@@ -2,6 +2,7 @@
 Loader for Mimic Dataset
 """
 import numpy as np
+import pandas as pd
 import logging
 
 import imageio
@@ -10,6 +11,37 @@ import torchvision.transforms as v_transforms
 import torchvision.utils as v_utils
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 
+
+class MimicDatasetTabular(Dataset):
+    def __init__(self, path):
+        self.feature_names = ['temperature', 'heartrate', 'resprate', 'o2sat', 'sbp','dbp']
+        self.label_names = ['atelectasis', 'cardiomegaly', 'edema', 'lung_opacity', 'pleural_effusion', 'pneumonia']
+        self.df = pd.read_csv(path, usecols=[*self.feature_names, *self.label_names])
+
+    def __len__(self):
+        return len(self.df.index)
+
+    def __getitem__(self, index):
+        features_df = self.df[self.feature_names].iloc[index]
+        labels_df = self.df[self.label_names].iloc[index]
+
+        features = torch.tensor(features_df.values, dtype=torch.float32)
+        atelectasis = torch.tensor(labels_df['atelectasis'], dtype=torch.float32)
+        cardiomegaly = torch.tensor(labels_df['cardiomegaly'], dtype=torch.float32)
+        edema = torch.tensor(labels_df['edema'], dtype=torch.float32)
+        lung_opacity = torch.tensor(labels_df['lung_opacity'], dtype=torch.float32)
+        pleural_effusion = torch.tensor(labels_df['pleural_effusion'], dtype=torch.float32)
+        pneumonia = torch.tensor(labels_df['pneumonia'], dtype=torch.float32)
+        
+        return {
+            'features': features,
+            'atelectasis': atelectasis,
+            'cardiomegaly': cardiomegaly,
+            'edema': edema,
+            'lung_opacity': lung_opacity,
+            'pleural_effusion': pleural_effusion,
+            'pneumonia': pneumonia
+        }
 
 class MimicDataLoader:
     def __init__(self, config):
@@ -33,17 +65,21 @@ class MimicDataLoader:
 
         elif config.data_mode == "tabular_numpy_train":
             self.logger.info("Loading DATA...")
-            self.data_path = "../data/s3/tensors"
-            self.feature_names = np.loadtxt(self.data_path + '/tabular_feature_names.txt', delimiter=',', dtype='str')
-            self.label_names = np.loadtxt(self.data_path + '/tabular_label_names.txt', delimiter=',', dtype='str')
+            self.data_path = "../data/s3"
+            self.feature_names = ['temperature', 'heartrate', 'resprate', 'o2sat', 'sbp','dbp']
+            self.label_names = ['atelectasis', 'cardiomegaly', 'edema', 'lung_opacity', 'pleural_effusion', 'pneumonia']
+            
+            train_set = MimicDatasetTabular(self.data_path + '/tabular_train.csv')
+            valid_set = MimicDatasetTabular(self.data_path + '/tabular_valid.csv')
             
             self.train_loader = DataLoader(
-                torch.load(self.data_path + '/tabular_train.pt'),
+                train_set,
                 batch_size=self.config.batch_size,
                 shuffle=True
             )
+
             self.valid_loader = DataLoader(
-                torch.load(self.data_path + '/tabular_valid.pt'),
+                valid_set,
                 batch_size=self.config.batch_size,
             )
             
@@ -53,12 +89,13 @@ class MimicDataLoader:
 
         elif config.data_mode == "tabular_numpy_test":
             self.logger.info("Loading DATA...")
-            self.data_path = "../data/s3/tensors"
-            self.feature_names = np.loadtxt(self.data_path + '/tabular_feature_names.txt', delimiter=',', dtype='str')
-            self.label_names = np.loadtxt(self.data_path + '/tabular_label_names.txt', delimiter=',', dtype='str')
-            test = TensorDataset(self.data_path + '/tabular_test.pt')
+            self.data_path = "../data/s3"
+            self.feature_names = ['temperature', 'heartrate', 'resprate', 'o2sat', 'sbp','dbp']
+            self.label_names = ['atelectasis', 'cardiomegaly', 'edema', 'lung_opacity', 'pleural_effusion', 'pneumonia']
 
-            self.test_loader = DataLoader(test, batch_size=config.batch_size, shuffle=False)
+            test_set = MimicDatasetTabular(self.data_path + '/tabular_test.csv')
+
+            self.test_loader = DataLoader(test_set, batch_size=config.batch_size, shuffle=False)
         else:
             raise Exception("Please specify in the json a specified mode in data_mode")
 

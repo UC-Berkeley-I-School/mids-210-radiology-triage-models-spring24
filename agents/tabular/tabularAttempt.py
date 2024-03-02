@@ -10,6 +10,9 @@ from torch.backends import cudnn
 from torch.autograd import Variable
 
 from agents.base import BaseAgent
+from graphs.models.tabularAttempt import TabularModel
+from graphs.losses.tabular_loss import binary_loss_fn
+from datasets.mimic import MimicDataLoader
 
 # import your classes here
 
@@ -26,16 +29,16 @@ class TabularAttempt(BaseAgent):
         super().__init__(config)
 
         # define models
-        self.model = None
+        self.model = TabularModel(self.config)
 
         # define data_loader
-        self.data_loader = None
+        self.data_loader = MimicDataLoader(self.config)
 
         # define loss
-        self.loss = None
+        self.loss = binary_loss_fn
 
         # define optimizers for both generator and discriminator
-        self.optimizer = None
+        self.optimizer = torch.optim.Adam(self.netG.parameters(), lr=self.config.learning_rate, betas=(self.config.beta1, self.config.beta2))
 
         # initialize counter
         self.current_epoch = 0
@@ -64,7 +67,7 @@ class TabularAttempt(BaseAgent):
         # Model Loading from the latest checkpoint if not found start from scratch.
         self.load_checkpoint(self.config.checkpoint_file)
         # Summary Writer
-        self.summary_writer = None
+        self.summary_writer = SummaryWriter(log_dir=self.config.summary_dir, comment='Tabular')
 
     def load_checkpoint(self, file_name):
         """
@@ -95,11 +98,10 @@ class TabularAttempt(BaseAgent):
             self.logger.info("You have entered CTRL+C.. Wait to finalize")
 
     def train(self):
-        """
-        Main training loop
-        :return:
-        """
-        pass
+        for epoch in range(self.current_epoch, self.config.max_epoch):
+            self.current_epoch = epoch
+            self.train_one_epoch()
+            self.save_checkpoint()
 
     def train_one_epoch(self):
         """
