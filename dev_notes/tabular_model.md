@@ -30,5 +30,5 @@ Training set label outputs and rates:
 
 ## Initial Model Build Process
 
-Initial approach is to create a multi-head multi-label classification model, with each head focused on a single class.
+Initial approach is to create a multi-head multi-label classification model, with each head focused on a single class. For the time being, setup as a dummy series of linear nn.
 

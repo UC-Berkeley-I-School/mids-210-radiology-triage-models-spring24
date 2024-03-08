@@ -9,7 +9,7 @@ from PIL import Image
 import numpy as np
 
 resize = transforms.Compose([transforms.ToPILImage(),
-                             transforms.Resize(40, interpolation=Image.CUBIC),
+                             transforms.Resize(40, interpolation=Image.BICUBIC),
                              transforms.ToTensor()])
 class CartPoleEnv:
     def __init__(self, screen_width):

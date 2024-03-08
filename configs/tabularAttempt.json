@@ -1,0 +1,27 @@
+{
+  "exp_name": "tabular_exp_0",
+  "agent": "TabularAttemptAgent",
+  "mode": "train",
+  "data_mode": "tabular_numpy_train",
+
+  "cuda": true,
+  "gpu_device": 0,
+  "seed": 1337,
+
+  "num_classes": 21,
+
+  "learning_rate": 0.0002,
+  "betas": [0.9, 0.999],
+  "momentum": 0.99,
+
+  "batch_size": 32,
+  "max_epoch": 10,
+
+  "validate_every": 2,
+
+  "checkpoint_file": "checkpoint.pth.tar",
+
+  "data_loader": "MimicDataLoader",
+  "pin_memory": true,
+  "async_loading": false
+}

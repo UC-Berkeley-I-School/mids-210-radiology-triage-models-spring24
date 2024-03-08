@@ -26,12 +26,12 @@ class MimicDatasetTabular(Dataset):
         labels_df = self.df[self.label_names].iloc[index]
 
         features = torch.tensor(features_df.values, dtype=torch.float32)
-        atelectasis = torch.tensor(labels_df['atelectasis'], dtype=torch.float32)
-        cardiomegaly = torch.tensor(labels_df['cardiomegaly'], dtype=torch.float32)
-        edema = torch.tensor(labels_df['edema'], dtype=torch.float32)
-        lung_opacity = torch.tensor(labels_df['lung_opacity'], dtype=torch.float32)
-        pleural_effusion = torch.tensor(labels_df['pleural_effusion'], dtype=torch.float32)
-        pneumonia = torch.tensor(labels_df['pneumonia'], dtype=torch.float32)
+        atelectasis = torch.tensor([labels_df['atelectasis']], dtype=torch.float32)
+        cardiomegaly = torch.tensor([labels_df['cardiomegaly']], dtype=torch.float32)
+        edema = torch.tensor([labels_df['edema']], dtype=torch.float32)
+        lung_opacity = torch.tensor([labels_df['lung_opacity']], dtype=torch.float32)
+        pleural_effusion = torch.tensor([labels_df['pleural_effusion']], dtype=torch.float32)
+        pneumonia = torch.tensor([labels_df['pneumonia']], dtype=torch.float32)
         
         return {
             'features': features,
@@ -50,7 +50,7 @@ class MimicDataLoader:
         """
         self.config = config
         self.logger = logging.getLogger("MimicDataLoader")
-        self.data_path = '../data/s3/mimic_iv__multiclass_multioutput__json_files'
+        self.data_path = './data/s3/mimic_iv__multiclass_multioutput__json_files'
         self.output = [
             "atelectasis",
             "cardiomegaly",
@@ -65,7 +65,7 @@ class MimicDataLoader:
 
         elif config.data_mode == "tabular_numpy_train":
             self.logger.info("Loading DATA...")
-            self.data_path = "../data/s3"
+            self.data_path = "./data/s3"
             self.feature_names = ['temperature', 'heartrate', 'resprate', 'o2sat', 'sbp','dbp']
             self.label_names = ['atelectasis', 'cardiomegaly', 'edema', 'lung_opacity', 'pleural_effusion', 'pneumonia']
             
@@ -89,7 +89,7 @@ class MimicDataLoader:
 
         elif config.data_mode == "tabular_numpy_test":
             self.logger.info("Loading DATA...")
-            self.data_path = "../data/s3"
+            self.data_path = "./data/s3"
             self.feature_names = ['temperature', 'heartrate', 'resprate', 'o2sat', 'sbp','dbp']
             self.label_names = ['atelectasis', 'cardiomegaly', 'edema', 'lung_opacity', 'pleural_effusion', 'pneumonia']
 
