@@ -131,7 +131,7 @@ class TabularAttemptAgent(BaseAgent):
 
     def train(self):
         for epoch in range(self.current_epoch, self.config.max_epoch):
-            self.current_epoch += epoch
+            self.current_epoch += 1
             self.train_one_epoch()
             valid_loss = self.validate()
             is_best = valid_loss < self.best_valid_loss
@@ -186,7 +186,7 @@ class TabularAttemptAgent(BaseAgent):
         self.model.eval()
         epoch_loss = AverageMeter()
         for i, data in tqdm(enumerate(self.data_loader.valid_loader), total=self.data_loader.valid_iterations,
-                          desc="Epoch-{}-".format(self.current_epoch)):
+                          desc="Validating Epoch-{}-".format(self.current_epoch)):
             # extract features and labels
             features = data['features'].to(self.device)
             target1 = data['atelectasis'].to(self.device)
