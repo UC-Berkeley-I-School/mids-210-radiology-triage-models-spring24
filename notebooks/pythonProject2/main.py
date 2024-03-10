@@ -37,7 +37,7 @@ import torch.nn.functional as F
 #
 # # Initialize the counter and the list for removal
 # no_findings_counter = 0
-# max_no_findings = 2050
+# max_no_findings = 1800
 # remove_list = []
 #
 # # Iterate through the DataFrame
@@ -52,6 +52,9 @@ import torch.nn.functional as F
 #         if no_findings_counter > max_no_findings:
 #             temp = (row[10])
 #             remove_list.append(temp)
+#     elif sum(items) > 1:
+#         temp = (row[10])
+#         remove_list.append(temp)
 #
 # print('Remove list size: ', len(remove_list))
 #
@@ -71,14 +74,14 @@ import torch.nn.functional as F
 # Re-split the dataset into test, training validation. 70,15,15 split
 ########################################################################################################################
 
-# df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
-# base_dir = '/home/ai/PycharmProjects/radiologycastone/pythonProject2'
-#
-# # Create subdirectories for the train, test, and validation splits
-# train_dir = os.path.join(base_dir, 'train')
-# test_dir = os.path.join(base_dir, 'test')
-# val_dir = os.path.join(base_dir, 'validation')
-#
+df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
+base_dir = '/home/ai/PycharmProjects/radiologycastone/pythonProject2'
+
+# Create subdirectories for the train, test, and validation splits
+train_dir = os.path.join(base_dir, 'train')
+test_dir = os.path.join(base_dir, 'test')
+val_dir = os.path.join(base_dir, 'validation')
+
 # os.makedirs(train_dir, exist_ok=True)
 # os.makedirs(test_dir, exist_ok=True)
 # os.makedirs(val_dir, exist_ok=True)
@@ -103,10 +106,10 @@ import torch.nn.functional as F
 # copy_images(test_images, df, test_dir)
 # copy_images(val_images, df, val_dir)
 #
-# # Optionally, print the number of images in each directory
-# print(f"Training set size: {len(os.listdir(train_dir))}")
-# print(f"Testing set size: {len(os.listdir(test_dir))}")
-# print(f"Validation set size: {len(os.listdir(val_dir))}")
+# Optionally, print the number of images in each directory
+print(f"Training set size: {len(os.listdir(train_dir))}")
+print(f"Testing set size: {len(os.listdir(test_dir))}")
+print(f"Validation set size: {len(os.listdir(val_dir))}")
 
 ########################################################################################################################
 # create a dataset object and attaches labels to images
@@ -213,7 +216,7 @@ else:
     validation_dataset = [data for data in validation_dataset if data is not None]
     print('Finished removing None types for validation dataset')
 
-    validation_loader = DataLoader(validation_dataset, batch_size=64, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=True)
 
     # Save the DataLoader objects
     with open('validation_loader.pkl', 'wb') as f:
@@ -235,9 +238,9 @@ print(images.shape, labels.shape)
 # visualize data
 ########################################################################################################################
 
-def get_all_labels(dataloader):
+def get_all_labels(dataset):
     all_labels_list = []
-    for _, labels in dataloader:
+    for _, labels in dataset:
         # Convert labels to CPU and to NumPy, then append to list
         all_labels_list.append(labels.cpu().numpy())
     # Concatenate list of arrays into a single array
@@ -249,8 +252,6 @@ class_names_list = ['atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effu
 single_label_count = 0
 multi_label_count = 0
 
-# Placeholder to store the count of each category
-category_counts = {}
 
 # Go through the DataLoader and check labels
 for _, labels in train_loader:
@@ -267,16 +268,9 @@ for _, labels in train_loader:
         elif pathology_count > 1:
             multi_label_count += 1
 
-        # Add to category count
-        if pathology_count in category_counts:
-            category_counts[pathology_count] += 1
-        else:
-            category_counts[pathology_count] = 1
 
 print(f"Single-label instances: {single_label_count}")
 print(f"Multi-label instances: {multi_label_count}")
-print(f"Category counts: {category_counts}")
-
 
 # Extract labels for each dataset
 train_all_labels = get_all_labels(train_loader)
@@ -290,16 +284,16 @@ all_labels = np.concatenate([train_all_labels, test_all_labels, validation_all_l
 class_counts = np.sum(all_labels, axis=0)
 
 
-# # plt.figure(figsize=(10, 7))
-# sns.barplot(x=class_names_list, y=class_counts)
-# plt.title('Class Distribution Across Train, Test, Validation Sets')
-# plt.xlabel('Class')
-# plt.ylabel('Frequency')
-#
-# # Corrected rotation without explicitly setting the labels
-# plt.xticks(rotation=45)
-#
-# plt.show()
+# plt.figure(figsize=(10, 7))
+sns.barplot(x=class_names_list, y=class_counts)
+plt.title('Class Distribution Across Train, Test, Validation Sets')
+plt.xlabel('Class')
+plt.ylabel('Frequency')
+
+# Corrected rotation without explicitly setting the labels
+plt.xticks(rotation=45)
+
+plt.show()
 
 ########################################################################################################################
 # defines the Focal loss
@@ -511,7 +505,7 @@ train_accuracies, val_accuracies = [], []
 # Define scheduler
 scheduler = StepLR(optimizer, step_size=4, gamma=0.1)
 
-num_epochs = 5
+num_epochs = 10
 
 for epoch in range(num_epochs):
     model.train()
