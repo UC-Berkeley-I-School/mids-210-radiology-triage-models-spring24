@@ -5,7 +5,8 @@
 
 from torchvision import models
 import torch
-import torch.nn as nn
+import torch.onnx
+from torchvision import transforms
 import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
@@ -26,11 +27,20 @@ import timm
 from torch.optim.lr_scheduler import StepLR
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix
+from sklearn.preprocessing import label_binarize
+from torch.utils.data import WeightedRandomSampler
 
 ########################################################################################################################
 # Reduce the number of no_findings in dataset
 ########################################################################################################################
+#img_path = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df/0a3b2835-17b1fb1b-f7e7e4a8-5f0de24e-cf4f111a.jpg'
+#img = cv2.imread(img_path)
 
+# Getting the dimensions of the image
+#height, width, channels = img.shape
+
+#print(f'The shape of the image is: {width}x{height}x{channels}')
 # # Load dataset
 # csv_file = pd.read_csv('Processed_Image_Data_Feb_28_2024.csv')
 # df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
@@ -74,14 +84,14 @@ import torch.nn.functional as F
 # Re-split the dataset into test, training validation. 70,15,15 split
 ########################################################################################################################
 
-df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
-base_dir = '/home/ai/PycharmProjects/radiologycastone/pythonProject2'
-
-# Create subdirectories for the train, test, and validation splits
-train_dir = os.path.join(base_dir, 'train')
-test_dir = os.path.join(base_dir, 'test')
-val_dir = os.path.join(base_dir, 'validation')
-
+# df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
+# base_dir = '/home/ai/PycharmProjects/radiologycastone/pythonProject2'
+#
+# # Create subdirectories for the train, test, and validation splits
+# train_dir = os.path.join(base_dir, 'train')
+# test_dir = os.path.join(base_dir, 'test')
+# val_dir = os.path.join(base_dir, 'validation')
+#
 # os.makedirs(train_dir, exist_ok=True)
 # os.makedirs(test_dir, exist_ok=True)
 # os.makedirs(val_dir, exist_ok=True)
@@ -105,11 +115,11 @@ val_dir = os.path.join(base_dir, 'validation')
 # copy_images(train_images, df, train_dir)
 # copy_images(test_images, df, test_dir)
 # copy_images(val_images, df, val_dir)
-#
-# Optionally, print the number of images in each directory
-print(f"Training set size: {len(os.listdir(train_dir))}")
-print(f"Testing set size: {len(os.listdir(test_dir))}")
-print(f"Validation set size: {len(os.listdir(val_dir))}")
+# #
+# # Optionally, print the number of images in each directory
+# print(f"Training set size: {len(os.listdir(train_dir))}")
+# print(f"Testing set size: {len(os.listdir(test_dir))}")
+# print(f"Validation set size: {len(os.listdir(val_dir))}")
 
 ########################################################################################################################
 # create a dataset object and attaches labels to images
@@ -126,7 +136,7 @@ class MedicalImageDataset(Dataset):
 
     def __getitem__(self, index):
         img_id = self.annotations.iloc[index, 10]
-        img_path = os.path.join(self.root_dir, str(img_id) + '.jpg')
+        img_path = os.path.join(self.root_dir, str(img_id))
         try:
             image = Image.open(img_path)
         except FileNotFoundError:
@@ -134,15 +144,18 @@ class MedicalImageDataset(Dataset):
             return None
         print(f"File {img_path} found.")
 
-        label = self.annotations.iloc[index, [2, 3, 5, 6]].values.astype(np.int8)
+        label = []
+        pat = self.annotations.iloc[index, [2, 3, 5, 6]].values.astype(np.int8)
         # Check if all the entries for pathological labels are 0, which means no findings
-        if sum(label) == 0:
-            no_findings = int(np.all(label == 0))
+        if sum(pat) == 0:
+            no_findings = 1
             # Add the no_findings label to the label array
             label = np.append(label, no_findings)
+            label = np.append(label, pat)
             label = torch.tensor(label, dtype=torch.int8)
         else:
             label = np.append(label, 0)
+            label = np.append(label, pat)
             label = torch.tensor(label, dtype=torch.int8)
 
         if self.transform:
@@ -161,9 +174,10 @@ def calculate_metrics(y_true, y_pred):
 
 
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),  # ResNet-18 expects images of size 224x224
+    transforms.Resize((256, 256)),  # ResNet-18 expects images of size 224x224
     transforms.ToTensor(),
-    transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+    # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+    # transforms.RandomRotation(degrees=5), # Added 3.20
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
@@ -172,15 +186,26 @@ if os.path.exists('train_loader.pkl'):
     with open('train_loader.pkl', 'rb') as f:
         train_loader = pickle.load(f)
 else:
-    train_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_Feb_28_2024.csv',
-                                        root_dir='train',
+    train_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
+                                        root_dir='mimic_images_March_10_2024_Datasets/train_4_unb_s',
                                         transform=transform)
 
     print('Removing None types for train dataset, this will take a long time.')
+    indices = [1, 2, 3, 4]
     train_dataset = [data for data in train_dataset if data is not None]
+    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in train_dataset]) # Added 3.20
+
+    # Calculate weights: more weight to 'no_findings' == 1 samples
+    weights = np.ones_like(no_findings_labels)
+    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
+
+    # Create a WeightedRandomSampler
+    sampler = WeightedRandomSampler(weights, len(weights))
+
     print('Finished removing None types for train dataset')
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=32, sampler=sampler, shuffle=False)
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
     with open('train_loader.pkl', 'wb') as f:
         pickle.dump(train_loader, f)
@@ -189,15 +214,26 @@ if os.path.exists('test_loader.pkl'):
     with open('test_loader.pkl', 'rb') as f:
         test_loader = pickle.load(f)
 else:
-    test_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_Feb_28_2024.csv',
-                                       root_dir='test',
+    test_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
+                                       root_dir='mimic_images_March_10_2024_Datasets/test_4_unb_s',
                                        transform=transform)
 
     print('Removing None types for test dataset')
+    indices = [1, 2, 3, 4]
     test_dataset = [data for data in test_dataset if data is not None]
+    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in test_dataset])  # Added 3.20
+
+    # Calculate weights: more weight to 'no_findings' == 1 samples
+    weights = np.ones_like(no_findings_labels)
+    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
+
+    # Create a WeightedRandomSampler
+    sampler = WeightedRandomSampler(weights, len(weights))
+
     print('Finished removing None types for test dataset')
 
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=32, sampler=sampler, shuffle=False)
+    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
 
     with open('test_loader.pkl', 'wb') as f:
         pickle.dump(test_loader, f)
@@ -208,15 +244,26 @@ if os.path.exists('validation_loader.pkl'):
 
 else:
 
-    validation_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_Feb_28_2024.csv',
-                                             root_dir='validation',
+    validation_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
+                                             root_dir='mimic_images_March_10_2024_Datasets/val_4_unb_s',
                                              transform=transform)
 
     print('Removing None types for validation dataset')
+    indices = [1, 2, 3, 4]
     validation_dataset = [data for data in validation_dataset if data is not None]
+    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in validation_dataset])  # Added 3.20
+
+    # Calculate weights: more weight to 'no_findings' == 1 samples
+    weights = np.ones_like(no_findings_labels)
+    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
+
+    # Create a WeightedRandomSampler
+    sampler = WeightedRandomSampler(weights, len(weights)) # Added 3.20
+
     print('Finished removing None types for validation dataset')
 
-    validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=32, sampler=sampler, shuffle=False) # Added 3.20
+    # validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=True)
 
     # Save the DataLoader objects
     with open('validation_loader.pkl', 'wb') as f:
@@ -247,7 +294,7 @@ def get_all_labels(dataset):
     return np.concatenate(all_labels_list, axis=0)
 
 
-class_names_list = ['atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion', 'no_findings']
+class_names_list = ['no_findings', 'atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion']
 
 single_label_count = 0
 multi_label_count = 0
@@ -325,11 +372,11 @@ class FocalLoss(nn.Module):
 # defines class weights
 #######################################################################################################################
 
-count_atelectasis = np.sum(all_labels[:, 0])
-count_cardiomegaly = np.sum(all_labels[:, 1])
-count_lung_opacity = np.sum(all_labels[:, 2])
-count_pleural_effusion = np.sum(all_labels[:, 3])
-count_no_findings = np.sum(all_labels[:, 4])
+count_no_findings = np.sum(all_labels[:, 0])
+count_atelectasis = np.sum(all_labels[:, 1])
+count_cardiomegaly = np.sum(all_labels[:, 2])
+count_lung_opacity = np.sum(all_labels[:, 3])
+count_pleural_effusion = np.sum(all_labels[:, 4])
 
 class_samples = np.array([count_atelectasis, count_cardiomegaly, count_lung_opacity,
                           count_pleural_effusion, count_no_findings])
@@ -389,6 +436,8 @@ class_weights_tensor = torch.FloatTensor(class_weights).cuda() if torch.cuda.is_
 #             nn.Dropout(p=0.5),
 #             nn.Linear(512, num_classes),
 #         )
+
+
 #
 #     # Method to calculate the output feature size of convolutions
 #     def _get_conv_output(self, shape):
@@ -444,7 +493,7 @@ class_weights_tensor = torch.FloatTensor(class_weights).cuda() if torch.cuda.is_
 ########################################################################################################################
 # Uncomment to choose DenseNet-121
 ########################################################################################################################
-
+#
 # # Load a pre-trained DenseNet121
 # model = models.densenet121(pretrained=True)
 #
@@ -489,6 +538,7 @@ optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr
 
 #criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
 criterion = FocalLoss(alpha=1, gamma=2, logits=True, reduce='mean')
+
 ########################################################################################################################
 # train model
 ########################################################################################################################
@@ -505,7 +555,7 @@ train_accuracies, val_accuracies = [], []
 # Define scheduler
 scheduler = StepLR(optimizer, step_size=4, gamma=0.1)
 
-num_epochs = 10
+num_epochs = 5
 
 for epoch in range(num_epochs):
     model.train()
@@ -569,7 +619,7 @@ for epoch in range(num_epochs):
     all_val_preds = torch.cat(all_val_preds, dim=0)
 
     # Calculate precision, recall, f1-score, and support
-    target_names = ['atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion', 'no_findings']
+    target_names = ['no_findings','atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion']
     report = classification_report(all_val_labels.numpy(), all_val_preds.numpy(), target_names=target_names)
     print(f'\nEpoch {epoch + 1}/{num_epochs} Classification Report:\n {report}')
 
@@ -581,7 +631,7 @@ for epoch in range(num_epochs):
     scheduler.step()
 
 # FIXME: Edit to save under the correct model
-torch.save(model, 'EfficientNet_B3.pth')
+torch.save(model, 'EfficientNet-B3-Unb.pth')
 
 ########################################################################################################################
 # visualize results
@@ -615,3 +665,77 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
+# Binarize the labels for each class
+y_bin = label_binarize(all_val_labels.numpy(), classes=[0, 1, 2, 3, 4])
+n_classes = y_bin.shape[1]
+
+# Compute ROC curve and ROC area for each class
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+
+# Assuming 'all_val_preds' are the predicted probabilities for each class
+for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(y_bin[:, i], all_val_preds[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# Plot all ROC curves
+plt.figure()
+
+for i in range(n_classes):
+    plt.plot(fpr[i], tpr[i], label=f'ROC curve (area = {roc_auc[i]:.2f}) for class {i}')
+
+plt.plot([0, 1], [0, 1], 'k--', label='No skill line')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver Operating Characteristic for multi-class')
+plt.legend(loc="lower right")
+plt.show()
+
+true_labels = all_val_labels.numpy()
+
+# If your true_labels are one-hot encoded, you would convert them as follows:
+true_labels = np.argmax(true_labels, axis=1)
+
+# Predicted labels: If your model outputs one-hot encoded predictions, use argmax to get the class
+predicted_labels = np.argmax(all_val_preds.numpy(), axis=1)
+
+# Compute the confusion matrix
+cm = confusion_matrix(true_labels, predicted_labels)
+
+# Plot the confusion matrix
+fig, ax = plt.subplots(figsize=(10, 10))
+sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
+
+# Labels, title and ticks
+label_names = ['No Findings','Atelectasis', 'Cardiomegaly', 'Lung Opacity', 'Pleural Effusion']
+ax.set_xlabel('Predicted labels', fontsize=18)
+ax.set_ylabel('True labels', fontsize=18)
+ax.set_title('Confusion Matrix', fontsize=18)
+ax.xaxis.set_ticklabels(label_names, fontsize=12, rotation=45)
+ax.yaxis.set_ticklabels(label_names, fontsize=12, rotation=0)
+plt.show()
+
+# Assuming 'model' is your trained EfficientNet-B3 model
+model.eval()  # Set the model to evaluation mode
+
+# Create a dummy input tensor that matches the input size of your model
+# For EfficientNet-B3, assuming the input size is 3x256x256
+dummy_input = torch.randn(1, 3, 256, 256, device='cuda')
+
+# Specify the name of the ONNX file
+output_onnx_file = 'EfficientNet-B3_Model.onnx'
+
+# Export the model to an ONNX file
+torch.onnx.export(model,               # model being run
+                  dummy_input,         # model input (or a tuple for multiple inputs)
+                  output_onnx_file,    # where to save the model (can be a file or file-like object)
+                  export_params=True,  # store the trained parameter weights inside the model file
+                  opset_version=11,    # the ONNX version to export the model to, choose based on your needs
+                  do_constant_folding=True,  # whether to execute constant folding for optimization
+                  input_names=['input'],   # the model's input names
+                  output_names=['output'],  # the model's output names
+                  dynamic_axes={'input': {0: 'batch_size'},  # variable-length axes
+                                'output': {0: 'batch_size'}})
