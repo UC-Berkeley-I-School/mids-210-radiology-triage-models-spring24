@@ -5,8 +5,7 @@
 
 from torchvision import models
 import torch
-import torch.onnx
-from torchvision import transforms
+import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
@@ -30,6 +29,9 @@ import torch.nn.functional as F
 from sklearn.metrics import roc_curve, auc, roc_auc_score, confusion_matrix
 from sklearn.preprocessing import label_binarize
 from torch.utils.data import WeightedRandomSampler
+import random
+from torchvision import transforms
+from torchvision.transforms import functional
 
 ########################################################################################################################
 # Reduce the number of no_findings in dataset
@@ -125,6 +127,239 @@ from torch.utils.data import WeightedRandomSampler
 # create a dataset object and attaches labels to images
 ########################################################################################################################
 
+# Define the base transform
+base_transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+])
+
+
+def preprocess_images(path):
+    first_image_printed = False
+    for image_name in os.listdir(path):
+        if not image_name.endswith('.jpg'):
+            continue  # Skip non-image files
+
+        image_path = os.path.join(path, image_name)
+        image = Image.open(image_path)
+        image = base_transform(image)
+        image.save(image_path)
+
+        if not first_image_printed:
+            print(f"The first image in {path} has been resized to: {image.size}")
+            first_image_printed = True
+
+
+def generate_csv_with_image_names(directories, csv_file_path):
+    # Define the columns for the new CSV file
+    columns = ['image_name']
+    rows = []
+
+    for directory_path in directories:
+        for image_name in os.listdir(directory_path):
+            if not image_name.endswith('.jpg'):
+                continue  # Skip non-image files
+
+            # Only add the image name to the row
+            row = [image_name]
+            rows.append(row)
+
+    # Create a DataFrame with the collected rows and the specified column
+    all_df = pd.DataFrame(rows, columns=columns)
+
+    # Save the DataFrame to a CSV file
+    all_df.to_csv(csv_file_path, index=False)
+
+
+def generate_csv_with_set_images(directory, csv_path, num):
+    # Define the columns for the new CSV file
+    columns = ['image_name']
+    rows = []
+
+    for image_name in os.listdir(directory):
+        if not image_name.endswith('.jpg'):
+            continue  # Skip non-image files
+
+            # Only add the image name to the row
+        row = [image_name]
+        rows.append(row)
+
+    if num == 1:
+        train_df = pd.DataFrame(rows, columns=columns)
+        train_df.to_csv(csv_path, index=False)
+    elif num == 2:
+        test_df = pd.DataFrame(rows, columns=columns)
+        test_df.to_csv(csv_path, index=False)
+    else:
+        val_df = pd.DataFrame(rows, columns=columns)
+        val_df.to_csv(csv_path, index=False)
+
+
+
+def update_set_with_labels(og_csv_path, final_csv_path, updated_csv_path):
+    # Load the original dataset
+    og_df = pd.read_csv(og_csv_path)
+
+    # Load the final set that currently only contains image names
+    final_df = pd.read_csv(final_csv_path)
+
+    # Prepare additional columns for the final_df
+    final_df['study_id'] = ''
+    final_df['no_findings'] = 0
+    final_df['atelectasis'] = 0
+    final_df['cardiomegaly'] = 0
+    final_df['lung_opacity'] = 0
+    final_df['pleural_effusion'] = 0
+
+    # Iterate through final_df to match and update details from og_df
+    for index, row in final_df.iterrows():
+        image_name = row['image_name']
+        # Find the row in og_df that matches the image name
+        matching_row = og_df[og_df.iloc[:, 10] == image_name]  # Assuming column 10 has image names
+
+        if not matching_row.empty:
+            # Directly assign the study_id
+            final_df.at[index, 'study_id'] = matching_row.iloc[0, 1]  # Study ID from og.csv
+
+            # Extract conditions and assign them individually
+            final_df.at[index, 'atelectasis'] = matching_row.iloc[0, 2]  # Atelectasis
+            final_df.at[index, 'cardiomegaly'] = matching_row.iloc[0, 3]  # Cardiomegaly
+            final_df.at[index, 'lung_opacity'] = matching_row.iloc[0, 5]  # Lung Opacity
+            final_df.at[index, 'pleural_effusion'] = matching_row.iloc[0, 6]  # Pleural Effusion
+
+            # Compute 'no_findings' and assign
+            conditions = matching_row.iloc[0, [2, 3, 5, 6]].values
+            final_df.at[index, 'no_findings'] = int((conditions == 0).all())
+
+    # Define the column order
+    column_order = ['image_name', 'study_id', 'no_findings', 'atelectasis', 'cardiomegaly', 'lung_opacity',
+                    'pleural_effusion']
+
+    # Save the updated final set with the specified column order
+    final_df.to_csv(updated_csv_path, columns=column_order, index=False)
+
+    print("The updated CSV file has been saved.")
+
+
+def augment_images_and_create_csv(image_directory, aug_directory, aug_csv_path):
+    # Load the final CSV containing image names and their associated labels
+    aug_df = pd.read_csv(aug_csv_path)
+
+    # Ensure the augmented images directory exists
+    os.makedirs(aug_directory, exist_ok=True)
+
+    # Define the transformation: random rotation between 1 and 5 degrees
+    rotate_transform = transforms.RandomRotation(degrees=(1, 5))
+
+    for index, row in aug_df.iterrows():
+        image_name = row['image_name']
+
+        if image_name.endswith('.jpg'):
+            # Construct the full image path
+            image_path = os.path.join(image_directory, image_name)
+            if not os.path.exists(image_path):
+                continue  # If the image file does not exist, skip to the next row
+            # Load the image
+            image = Image.open(image_path)
+            # Apply the random rotation
+            rotated_image = rotate_transform(image)
+            # Construct the new image name for the augmented image
+            aug_image_name = f"r-{image_name}"
+            # Construct the path for saving the augmented image
+            aug_image_path = os.path.join(aug_directory, aug_image_name)
+            # Save the augmented image
+            rotated_image.save(aug_image_path)
+
+            # replace current name with new image name
+            aug_df.at[index, 'image_name'] = aug_image_name
+
+    aug_df.to_csv(aug_csv_path, index=False)
+    print("Augmentation complete, and aug.csv has been created.")
+
+
+def append_csv_files(final_path, aug_path, full_train_path):
+    # Load both CSV files into DataFrames
+    base_df = pd.read_csv(final_path)
+    new_df = pd.read_csv(aug_path)
+
+    # Ensure column consistency (Optional: Based on your dataset's requirements)
+    assert list(base_df.columns) == list(new_df.columns), "Columns do not match between CSV files."
+
+    # Concatenate the new_df DataFrame to the end of base_df DataFrame
+    combined_df = pd.concat([base_df, new_df], ignore_index=True)
+
+    # Save the combined DataFrame back to the base_csv_path
+    combined_df.to_csv(full_train_path, index=False)
+
+    print(f"Contents of {aug_path} have been appended to {final_path}.\n")
+
+
+test = 'mimic_images_March_10_2024_Datasets/prep/test'
+train = 'mimic_images_March_10_2024_Datasets/prep/train'
+val = 'mimic_images_March_10_2024_Datasets/prep/val'
+image_csv_path = 'mimic_images_March_10_2024_Datasets/prep/image.csv'
+train_csv_path = 'mimic_images_March_10_2024_Datasets/prep/train_image.csv'
+test_csv_path = 'mimic_images_March_10_2024_Datasets/prep/test_image.csv'
+val_csv_path = 'mimic_images_March_10_2024_Datasets/prep/val_image.csv'
+og_csv_path = 'Processed_Image_Data_March_11_2024.csv'
+train_label_path = 'mimic_images_March_10_2024_Datasets/prep/train_set_labeled.csv'
+test_label_path = 'mimic_images_March_10_2024_Datasets/prep/test_set_labeled.csv'
+val_label_path = 'mimic_images_March_10_2024_Datasets/prep/val_set_labeled.csv'
+aug = 'mimic_images_March_10_2024_Datasets/prep/aug'
+aug_label_path = 'mimic_images_March_10_2024_Datasets/prep/aug_img.csv'
+full_train_path = 'mimic_images_March_10_2024_Datasets/prep/full_train_path.csv'
+
+# preprocess_images(test)
+# preprocess_images(train)
+# preprocess_images(val)
+
+print("Image resizing done")
+
+# # Generate the CSV file for all the images
+# generate_csv_with_image_names([train, test, val], image_csv_path)
+print("CSV file for all images has been generated.")
+df_all = pd.read_csv(image_csv_path)
+num_entries = len(df_all)
+print(f"The number of entries in the CSV file is: {num_entries}\n")
+
+# # create CSV file with images, study_id and labels for train
+# generate_csv_with_set_images(train, train_csv_path, 1)
+# update_set_with_labels(og_csv_path, train_csv_path, train_label_path)
+df_train = pd.read_csv(train_label_path)
+num_entries_train = len(df_train)
+print(f"The number of entries in the Train CSV with labels is: {num_entries_train}\n")
+
+# # create CSV file with images, study_id and labels for test
+# generate_csv_with_set_images(test, test_csv_path, 2)
+# update_set_with_labels(og_csv_path, test_csv_path, test_label_path)
+df_test = pd.read_csv(test_label_path)
+num_entries_test = len(df_test)
+print(f"The number of entries in the Test CSV with labels is: {num_entries_test}\n")
+
+# # create CSV file with images, study_id and labels for val
+# generate_csv_with_set_images(val, val_csv_path, 3)
+# update_set_with_labels(og_csv_path, val_csv_path, val_label_path)
+dfval = pd.read_csv(val_label_path)
+num_entries_val = len(dfval)
+print(f"The number of entries in the Val CSV with labels is: {num_entries_val}\n")
+
+# # augment and save images. Creat scv file containing labels
+# augment_images_and_create_csv(train, aug, aug_label_path)
+df_aug = pd.read_csv(aug_label_path)
+num_entries_aug = len(df_aug)
+print(f"The number of entries in the Aug CSV file is: {num_entries_aug}\n")
+
+# # append augmented data to og data
+# append_csv_files(train_label_path, aug_label_path, full_train_path)
+df_full_train = pd.read_csv(full_train_path)
+num_entries_full_train = len(df_full_train)
+print(f"The number of entries in the All_Train CSV file post append is: {num_entries_full_train}")
+
+loader_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+
 class MedicalImageDataset(Dataset):
     def __init__(self, csv_file, root_dir, transform=None):
         self.annotations = pd.read_csv(csv_file)
@@ -135,7 +370,7 @@ class MedicalImageDataset(Dataset):
         return len(self.annotations)
 
     def __getitem__(self, index):
-        img_id = self.annotations.iloc[index, 10]
+        img_id = self.annotations.iloc[index, 0]
         img_path = os.path.join(self.root_dir, str(img_id))
         try:
             image = Image.open(img_path)
@@ -144,24 +379,15 @@ class MedicalImageDataset(Dataset):
             return None
         print(f"File {img_path} found.")
 
-        label = []
-        pat = self.annotations.iloc[index, [2, 3, 5, 6]].values.astype(np.int8)
-        # Check if all the entries for pathological labels are 0, which means no findings
-        if sum(pat) == 0:
-            no_findings = 1
-            # Add the no_findings label to the label array
-            label = np.append(label, no_findings)
-            label = np.append(label, pat)
-            label = torch.tensor(label, dtype=torch.int8)
-        else:
-            label = np.append(label, 0)
-            label = np.append(label, pat)
-            label = torch.tensor(label, dtype=torch.int8)
+
+        label = self.annotations.iloc[index, [2, 3, 4, 5, 6]].values.astype(np.int8)
+        label = torch.tensor(label, dtype=torch.int8)
 
         if self.transform:
             image = self.transform(image)
 
-        return (image, label)
+        return img_id, image, label
+
 
 def calculate_metrics(y_true, y_pred):
     y_pred = torch.sigmoid(y_pred).cpu().numpy()
@@ -169,31 +395,22 @@ def calculate_metrics(y_true, y_pred):
     y_true = y_true.cpu().numpy()
 
     accuracy = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred, average='weighted')
+    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
     return accuracy, f1
-
-
-transform = transforms.Compose([
-    transforms.Resize((256, 256)),  # ResNet-18 expects images of size 224x224
-    transforms.ToTensor(),
-    # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-    # transforms.RandomRotation(degrees=5), # Added 3.20
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
 
 if os.path.exists('train_loader.pkl'):
     # Load the DataLoader objects from the pickle files
     with open('train_loader.pkl', 'rb') as f:
         train_loader = pickle.load(f)
 else:
-    train_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
-                                        root_dir='mimic_images_March_10_2024_Datasets/train_4_unb_s',
-                                        transform=transform)
+    train_dataset = MedicalImageDataset(csv_file='mimic_images_March_10_2024_Datasets/prep/full_train_path.csv',
+                                        root_dir='mimic_images_March_10_2024_Datasets/prep/all_train',
+                                        transform=loader_transform)
 
     print('Removing None types for train dataset, this will take a long time.')
     indices = [1, 2, 3, 4]
     train_dataset = [data for data in train_dataset if data is not None]
-    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in train_dataset]) # Added 3.20
+    no_findings_labels = np.array([1 if sum([sample[2][i] for i in indices]) == 1 else 0 for sample in train_dataset])
 
     # Calculate weights: more weight to 'no_findings' == 1 samples
     weights = np.ones_like(no_findings_labels)
@@ -214,26 +431,21 @@ if os.path.exists('test_loader.pkl'):
     with open('test_loader.pkl', 'rb') as f:
         test_loader = pickle.load(f)
 else:
-    test_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
-                                       root_dir='mimic_images_March_10_2024_Datasets/test_4_unb_s',
-                                       transform=transform)
+    test_dataset = MedicalImageDataset(csv_file='mimic_images_March_10_2024_Datasets/prep/test_set_labeled.csv',
+                                       root_dir='mimic_images_March_10_2024_Datasets/prep/test',
+                                       transform=loader_transform)
 
-    print('Removing None types for test dataset')
-    indices = [1, 2, 3, 4]
-    test_dataset = [data for data in test_dataset if data is not None]
-    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in test_dataset])  # Added 3.20
+    # test_dataset = [data for data in test_dataset if data is not None]
 
-    # Calculate weights: more weight to 'no_findings' == 1 samples
-    weights = np.ones_like(no_findings_labels)
-    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
+    filtered_test_dataset = []
 
-    # Create a WeightedRandomSampler
-    sampler = WeightedRandomSampler(weights, len(weights))
+    for data in test_dataset:
+        if data is not None:
+            filtered_test_dataset.append(data)
 
-    print('Finished removing None types for test dataset')
+    test_dataset = filtered_test_dataset
 
-    test_loader = DataLoader(test_dataset, batch_size=32, sampler=sampler, shuffle=False)
-    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     with open('test_loader.pkl', 'wb') as f:
         pickle.dump(test_loader, f)
@@ -244,36 +456,23 @@ if os.path.exists('validation_loader.pkl'):
 
 else:
 
-    validation_dataset = MedicalImageDataset(csv_file='Processed_Image_Data_March_11_2024.csv',
-                                             root_dir='mimic_images_March_10_2024_Datasets/val_4_unb_s',
-                                             transform=transform)
+    validation_dataset = MedicalImageDataset(csv_file='mimic_images_March_10_2024_Datasets/prep/val_set_labeled.csv',
+                                             root_dir='mimic_images_March_10_2024_Datasets/prep/val',
+                                             transform=loader_transform)
 
-    print('Removing None types for validation dataset')
-    indices = [1, 2, 3, 4]
     validation_dataset = [data for data in validation_dataset if data is not None]
-    no_findings_labels = np.array([1 if sum([sample[1][i] for i in indices]) == 1 else 0 for sample in validation_dataset])  # Added 3.20
 
-    # Calculate weights: more weight to 'no_findings' == 1 samples
-    weights = np.ones_like(no_findings_labels)
-    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
-
-    # Create a WeightedRandomSampler
-    sampler = WeightedRandomSampler(weights, len(weights)) # Added 3.20
-
-    print('Finished removing None types for validation dataset')
-
-    validation_loader = DataLoader(validation_dataset, batch_size=32, sampler=sampler, shuffle=False) # Added 3.20
-    # validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=False)
 
     # Save the DataLoader objects
     with open('validation_loader.pkl', 'wb') as f:
         pickle.dump(validation_loader, f)
 iterator = iter(train_loader)
-images, labels = next(iterator)
+_, images, labels = next(iterator)
 print(f'Image shape: {images.shape}')
 print(f'Label shape: {labels.shape}')
 
-for i, (images, labels) in enumerate(train_loader):
+for i, (_, images, labels) in enumerate(train_loader):
     if torch.cuda.is_available():
         images = Variable(images.cuda())
         labels = Variable(labels.cuda())
@@ -281,16 +480,37 @@ for i, (images, labels) in enumerate(train_loader):
 print(images.shape, labels.shape)
 
 
+# Assuming train_loader, test_loader, and validation_loader are your DataLoader instances
+# Assuming train_loader, test_loader, and validation_loader are your DataLoader instances
+
+num_train_items = len(train_loader.dataset)
+num_test_items = len(test_loader.dataset)
+num_validation_items = len(validation_loader.dataset)
+
+print(f"Number of items in training dataset: {num_train_items}")
+print(f"Number of items in test dataset: {num_test_items}")
+print(f"Number of items in validation dataset: {num_validation_items}")
+
+num_train_batches = len(train_loader)
+num_test_batches = len(test_loader)
+num_validation_batches = len(validation_loader)
+
+print(f"Number of batches in training DataLoader: {num_train_batches}")
+print(f"Number of batches in test DataLoader: {num_test_batches}")
+print(f"Number of batches in validation DataLoader: {num_validation_batches}")
+
+
+
+
+
 ########################################################################################################################
 # visualize data
 ########################################################################################################################
 
-def get_all_labels(dataset):
+def get_all_labels(data_loader):  # Assuming you're passing a DataLoader, not Dataset
     all_labels_list = []
-    for _, labels in dataset:
-        # Convert labels to CPU and to NumPy, then append to list
+    for _, _, labels in data_loader:  # Adjusted to unpack correctly
         all_labels_list.append(labels.cpu().numpy())
-    # Concatenate list of arrays into a single array
     return np.concatenate(all_labels_list, axis=0)
 
 
@@ -301,7 +521,7 @@ multi_label_count = 0
 
 
 # Go through the DataLoader and check labels
-for _, labels in train_loader:
+for _, _, labels in train_loader:
     # Assuming your labels are torch Tensors
     numpy_labels = labels.numpy()
 
@@ -342,6 +562,20 @@ plt.xticks(rotation=45)
 
 plt.show()
 
+# Assuming train_loader is defined and is a DataLoader object
+train_all_labels = get_all_labels(train_loader)
+
+# Sum across samples to get the total count for each class in the training set
+class_counts = np.sum(train_all_labels, axis=0)
+
+# Plotting
+sns.barplot(x=class_names_list, y=class_counts)
+plt.title('Class Distribution in Training Set')
+plt.xlabel('Class')
+plt.ylabel('Frequency')
+plt.xticks(rotation=45)
+plt.show()
+
 ########################################################################################################################
 # defines the Focal loss
 ########################################################################################################################
@@ -372,11 +606,11 @@ class FocalLoss(nn.Module):
 # defines class weights
 #######################################################################################################################
 
-count_no_findings = np.sum(all_labels[:, 0])
-count_atelectasis = np.sum(all_labels[:, 1])
-count_cardiomegaly = np.sum(all_labels[:, 2])
-count_lung_opacity = np.sum(all_labels[:, 3])
-count_pleural_effusion = np.sum(all_labels[:, 4])
+count_atelectasis = np.sum(all_labels[:, 0])
+count_cardiomegaly = np.sum(all_labels[:, 1])
+count_lung_opacity = np.sum(all_labels[:, 2])
+count_pleural_effusion = np.sum(all_labels[:, 3])
+count_no_findings = np.sum(all_labels[:, 4])
 
 class_samples = np.array([count_atelectasis, count_cardiomegaly, count_lung_opacity,
                           count_pleural_effusion, count_no_findings])
@@ -562,9 +796,10 @@ for epoch in range(num_epochs):
     running_loss = 0.0
     correct_preds, total_preds = 0, 0
 
-    for images, labels in train_loader:
+    for img_ids, images, labels in train_loader:  # Updated to include img_ids
         if torch.cuda.is_available():
-            images, labels = images.cuda(), labels.cuda()
+            images = images.cuda()
+            labels = labels.cuda()
 
         optimizer.zero_grad()
         outputs = model(images)
@@ -587,9 +822,10 @@ for epoch in range(num_epochs):
     val_running_loss = 0.0
     val_correct_preds, val_total_preds = 0, 0
     with torch.no_grad():
-        for images, labels in validation_loader:
+        for _, images, labels in validation_loader:
             if torch.cuda.is_available():
-                images, labels = images.cuda(), labels.cuda()
+                images = images.cuda()
+                labels = labels.cuda()
             outputs = model(images)
             loss = criterion(outputs, labels.float())
             val_running_loss += loss.item()
@@ -605,9 +841,10 @@ for epoch in range(num_epochs):
     all_val_labels = []
     all_val_preds = []
     with torch.no_grad():
-        for images, labels in validation_loader:
+        for _, images, labels in validation_loader:
             if torch.cuda.is_available():
-                images, labels = images.cuda(), labels.cuda()
+                images = images.cuda()
+                labels = labels.cuda()
 
             outputs = model(images)
             predictions = torch.sigmoid(outputs) > 0.5
@@ -619,7 +856,7 @@ for epoch in range(num_epochs):
     all_val_preds = torch.cat(all_val_preds, dim=0)
 
     # Calculate precision, recall, f1-score, and support
-    target_names = ['no_findings','atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion']
+    target_names = ['no_findings', 'atelectasis', 'cardiomegaly', 'lung_opacity', 'pleural_effusion']
     report = classification_report(all_val_labels.numpy(), all_val_preds.numpy(), target_names=target_names)
     print(f'\nEpoch {epoch + 1}/{num_epochs} Classification Report:\n {report}')
 
@@ -695,6 +932,7 @@ plt.legend(loc="lower right")
 plt.show()
 
 true_labels = all_val_labels.numpy()
+print("train duplicate ", )
 
 # If your true_labels are one-hot encoded, you would convert them as follows:
 true_labels = np.argmax(true_labels, axis=1)
@@ -710,13 +948,51 @@ fig, ax = plt.subplots(figsize=(10, 10))
 sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
 
 # Labels, title and ticks
-label_names = ['No Findings','Atelectasis', 'Cardiomegaly', 'Lung Opacity', 'Pleural Effusion']
+label_names = ['No_Findings','Atelectasis', 'Cardiomegaly', 'Lung_Opacity', 'Pleural_Effusion']
 ax.set_xlabel('Predicted labels', fontsize=18)
 ax.set_ylabel('True labels', fontsize=18)
 ax.set_title('Confusion Matrix', fontsize=18)
 ax.xaxis.set_ticklabels(label_names, fontsize=12, rotation=45)
 ax.yaxis.set_ticklabels(label_names, fontsize=12, rotation=0)
 plt.show()
+
+########################################################################################################################
+# evaluate and collect
+########################################################################################################################
+def evaluate_and_collect_data(model, data_loader):
+    model.eval()
+    all_ids = []
+    all_probs = []
+    with torch.no_grad():
+        for data in data_loader:
+            if data is None:  # Skip the loop iteration if the dataset returned None
+                continue
+            img_ids, images, labels = data  # Now unpacking three values
+            if torch.cuda.is_available():
+                images, labels = images.cuda(), labels.cuda()
+            outputs = model(images)
+            probabilities = torch.sigmoid(outputs).cpu().numpy()
+            all_probs.extend(probabilities)
+            all_ids.extend(list(img_ids))  # Make sure img_ids is iterable
+    return all_ids, all_probs
+
+def save_results_to_csv(ids, probs, file_name):
+    # Assuming probs is a list of numpy arrays with the shape (num_samples, num_classes)
+    df = pd.DataFrame(data=probs, columns=['No_Findings', 'Atelectasis', 'Cardiomegaly', 'Lung_Opacity', 'Pleural_Effusion'])
+    df.insert(0, 'img_id', ids)
+    df.to_csv(file_name, index=False)
+
+# For validation set
+val_ids, val_probs = evaluate_and_collect_data(model, validation_loader)
+save_results_to_csv(val_ids, val_probs, 'validation_results.csv')
+
+# For testing set
+val_ids, val_probs = evaluate_and_collect_data(model, test_loader)
+save_results_to_csv(val_ids, val_probs, 'test_results.csv')
+
+# For training set
+val_ids, val_probs = evaluate_and_collect_data(model, train_loader)
+save_results_to_csv(val_ids, val_probs, 'train_results.csv')
 
 # Assuming 'model' is your trained EfficientNet-B3 model
 model.eval()  # Set the model to evaluation mode
@@ -739,3 +1015,33 @@ torch.onnx.export(model,               # model being run
                   output_names=['output'],  # the model's output names
                   dynamic_axes={'input': {0: 'batch_size'},  # variable-length axes
                                 'output': {0: 'batch_size'}})
+
+
+train_path = 'train_results.csv'
+csv_file_train = pd.read_csv(train_path)
+test_path = 'test_results.csv'
+csv_file_test = pd.read_csv(test_path)
+val_path = 'validation_results.csv'
+csv_file_val = pd.read_csv(val_path)
+
+test_duplicates = csv_file_test[csv_file_test.iloc[:, 0].duplicated(keep=False)]
+val_duplicates = csv_file_val[csv_file_val.iloc[:, 0].duplicated(keep=False)]
+train_duplicates = csv_file_train[csv_file_train.iloc[:, 0].duplicated(keep=False)]
+
+if not test_duplicates.empty:
+    print(f"Found {len(test_duplicates)} duplicates in test set:")
+    print(test_duplicates)
+else:
+    print("No duplicates found in test set.")
+
+if not val_duplicates.empty:
+    print(f"Found {len(val_duplicates)} duplicates in val set:")
+    print(val_duplicates)
+else:
+    print("No duplicates found in val set.")
+
+if not train_duplicates.empty:
+    print(f"Found {len(train_duplicates)} duplicates in train set:")
+    print(train_duplicates)
+else:
+    print("No duplicates found in train set.")
