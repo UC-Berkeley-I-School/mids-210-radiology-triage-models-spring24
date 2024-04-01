@@ -296,14 +296,17 @@ def append_csv_files(final_path, aug_path, full_train_path):
 test = 'mimic_images_March_10_2024_Datasets/prep/test'
 train = 'mimic_images_March_10_2024_Datasets/prep/train'
 val = 'mimic_images_March_10_2024_Datasets/prep/val'
+train_bal = 'mimic_images_March_10_2024_Datasets/prep/train_4_bal_s'
 image_csv_path = 'mimic_images_March_10_2024_Datasets/prep/image.csv'
 train_csv_path = 'mimic_images_March_10_2024_Datasets/prep/train_image.csv'
 test_csv_path = 'mimic_images_March_10_2024_Datasets/prep/test_image.csv'
 val_csv_path = 'mimic_images_March_10_2024_Datasets/prep/val_image.csv'
+train_bal_path = 'mimic_images_March_10_2024_Datasets/prep/train_bal_image.csv'
 og_csv_path = 'Processed_Image_Data_March_11_2024.csv'
 train_label_path = 'mimic_images_March_10_2024_Datasets/prep/train_set_labeled.csv'
 test_label_path = 'mimic_images_March_10_2024_Datasets/prep/test_set_labeled.csv'
 val_label_path = 'mimic_images_March_10_2024_Datasets/prep/val_set_labeled.csv'
+train_bal_label_path ='mimic_images_March_10_2024_Datasets/prep/train_bal_labeled.csv'
 aug = 'mimic_images_March_10_2024_Datasets/prep/aug'
 aug_label_path = 'mimic_images_March_10_2024_Datasets/prep/aug_img.csv'
 full_train_path = 'mimic_images_March_10_2024_Datasets/prep/full_train_path.csv'
@@ -311,6 +314,7 @@ full_train_path = 'mimic_images_March_10_2024_Datasets/prep/full_train_path.csv'
 # preprocess_images(test)
 # preprocess_images(train)
 # preprocess_images(val)
+# preprocess_images(train_bal)
 
 print("Image resizing done")
 
@@ -320,6 +324,13 @@ print("CSV file for all images has been generated.")
 df_all = pd.read_csv(image_csv_path)
 num_entries = len(df_all)
 print(f"The number of entries in the CSV file is: {num_entries}\n")
+
+# # create CSV file with images, study_id and labels for train_bal
+# generate_csv_with_set_images(train_bal, train_bal_path, 1)
+# update_set_with_labels(og_csv_path, train_bal_path, train_bal_label_path)
+df_train_bal = pd.read_csv(train_bal_label_path)
+num_entries_train_bal = len(df_train_bal)
+print(f"The number of entries in the Train_Bal CSV with labels is: {num_entries_train_bal}\n")
 
 # # create CSV file with images, study_id and labels for train
 # generate_csv_with_set_images(train, train_csv_path, 1)
@@ -467,6 +478,26 @@ else:
     # Save the DataLoader objects
     with open('validation_loader.pkl', 'wb') as f:
         pickle.dump(validation_loader, f)
+
+if os.path.exists('train_bal_loader.pkl'):
+    with open('train_bal_loader.pkl', 'rb') as f:
+        train_bal_loader = pickle.load(f)
+
+else:
+
+    train_bal_dataset = MedicalImageDataset(csv_file='mimic_images_March_10_2024_Datasets/prep/train_bal_labeled.csv',
+                                             root_dir='mimic_images_March_10_2024_Datasets/prep/train_4_bal_s',
+                                             transform=loader_transform)
+
+    train_bal_dataset = [data for data in train_bal_dataset if data is not None]
+
+    train_bal_loader = DataLoader(train_bal_dataset, batch_size=32, shuffle=False)
+
+    # Save the DataLoader objects
+    with open('train_bal_loader.pkl', 'wb') as f:
+        pickle.dump(train_bal_loader, f)
+
+
 iterator = iter(train_loader)
 _, images, labels = next(iterator)
 print(f'Image shape: {images.shape}')
@@ -486,18 +517,22 @@ print(images.shape, labels.shape)
 num_train_items = len(train_loader.dataset)
 num_test_items = len(test_loader.dataset)
 num_validation_items = len(validation_loader.dataset)
+num_train_bal_items = len(train_bal_loader.dataset)
 
 print(f"Number of items in training dataset: {num_train_items}")
 print(f"Number of items in test dataset: {num_test_items}")
 print(f"Number of items in validation dataset: {num_validation_items}")
+print(f"Number of items in train_bal dataset: {num_train_bal_items}")
 
 num_train_batches = len(train_loader)
 num_test_batches = len(test_loader)
 num_validation_batches = len(validation_loader)
+num_train_bal_batches = len(train_bal_loader)
 
 print(f"Number of batches in training DataLoader: {num_train_batches}")
 print(f"Number of batches in test DataLoader: {num_test_batches}")
 print(f"Number of batches in validation DataLoader: {num_validation_batches}")
+print(f"Number of batches in train_bal DataLoader: {num_train_bal_batches}")
 
 
 
@@ -934,16 +969,12 @@ plt.show()
 true_labels = all_val_labels.numpy()
 print("train duplicate ", )
 
-# If your true_labels are one-hot encoded, you would convert them as follows:
 true_labels = np.argmax(true_labels, axis=1)
 
-# Predicted labels: If your model outputs one-hot encoded predictions, use argmax to get the class
 predicted_labels = np.argmax(all_val_preds.numpy(), axis=1)
 
-# Compute the confusion matrix
 cm = confusion_matrix(true_labels, predicted_labels)
 
-# Plot the confusion matrix
 fig, ax = plt.subplots(figsize=(10, 10))
 sns.heatmap(cm, annot=True, fmt='d', ax=ax, cmap=plt.cm.Blues, cbar=False)
 
@@ -994,26 +1025,27 @@ save_results_to_csv(val_ids, val_probs, 'test_results.csv')
 val_ids, val_probs = evaluate_and_collect_data(model, train_loader)
 save_results_to_csv(val_ids, val_probs, 'train_results.csv')
 
-# Assuming 'model' is your trained EfficientNet-B3 model
+# For balanced training set
+val_ids, val_probs = evaluate_and_collect_data(model, train_bal_loader)
+save_results_to_csv(val_ids, val_probs, 'train_bal_results.csv')
+
 model.eval()  # Set the model to evaluation mode
 
-# Create a dummy input tensor that matches the input size of your model
-# For EfficientNet-B3, assuming the input size is 3x256x256
 dummy_input = torch.randn(1, 3, 256, 256, device='cuda')
 
 # Specify the name of the ONNX file
 output_onnx_file = 'EfficientNet-B3_Model.onnx'
 
 # Export the model to an ONNX file
-torch.onnx.export(model,               # model being run
-                  dummy_input,         # model input (or a tuple for multiple inputs)
-                  output_onnx_file,    # where to save the model (can be a file or file-like object)
-                  export_params=True,  # store the trained parameter weights inside the model file
-                  opset_version=11,    # the ONNX version to export the model to, choose based on your needs
-                  do_constant_folding=True,  # whether to execute constant folding for optimization
-                  input_names=['input'],   # the model's input names
-                  output_names=['output'],  # the model's output names
-                  dynamic_axes={'input': {0: 'batch_size'},  # variable-length axes
+torch.onnx.export(model,
+                  dummy_input,
+                  output_onnx_file,
+                  export_params=True,
+                  opset_version=11,
+                  do_constant_folding=True,
+                  input_names=['input'],
+                  output_names=['output'],
+                  dynamic_axes={'input': {0: 'batch_size'},
                                 'output': {0: 'batch_size'}})
 
 
@@ -1022,6 +1054,8 @@ csv_file_train = pd.read_csv(train_path)
 test_path = 'test_results.csv'
 csv_file_test = pd.read_csv(test_path)
 val_path = 'validation_results.csv'
+csv_file_val = pd.read_csv(val_path)
+train_bal_path = 'train_bal_results.csv'
 csv_file_val = pd.read_csv(val_path)
 
 test_duplicates = csv_file_test[csv_file_test.iloc[:, 0].duplicated(keep=False)]
