@@ -1002,7 +1002,7 @@ def evaluate_and_collect_data(model, data_loader):
             if torch.cuda.is_available():
                 images, labels = images.cuda(), labels.cuda()
             outputs = model(images)
-            probabilities = torch.sigmoid(outputs).cpu().numpy()
+            probabilities = torch.softmax(outputs, dim=1).cpu().numpy()
             all_probs.extend(probabilities)
             all_ids.extend(list(img_ids))  # Make sure img_ids is iterable
     return all_ids, all_probs
