@@ -114,3 +114,4 @@ pretrained_weights/*
 # Data
 data/*
 !data/.keep
+.DS_Store

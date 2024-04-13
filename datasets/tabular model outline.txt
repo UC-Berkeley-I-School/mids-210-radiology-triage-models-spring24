@@ -1,0 +1,57 @@
+# Define types of features:
+ordinal_cols  = data columns ['temperature','heartrate','resprate','o2sat','sbp','dbp','pain', 'acuity'] --corresponding to pain & acuity
+ratio_cols    = data columns [?, ?] rest oof numeric features
+
+# Define the preprocessing steps:
+#  For missing values the lines below use one method each but you can use options
+ordinal_pp_steps = Pipeline([('most_often',SimpleImputer(strategy=',ost often???', fill_value='???')),
+                           ('Ordinal',OrdinalEncoder(),
+                           ('Robust',RobustScaler(with_centering=False))])  
+ratio_pp_steps   = Pipeline([('missing=-1',SimpleImputer(strategy='constant', fill_value=-1)),
+                           ('Robust',RobustScaler(with_centering=False))])
+
+
+# Define transformers
+t=[("ordinal",ordinal_pp_steps,ordinal_cols), ('ratio',ratio_pp_steps ,ratio_cols)]
+preprocessor = ColumnTransformer(transformers = t)
+
+# Define estimator
+xgb =  XGBClassifier(random_state= ?, ... plus other parameter defaults or assigned???)
+
+# Final pipeline
+pipe = Pipeline([('preprocess',preprocessor), ('estimator', xgb)])
+
+# Setup default parameters for gridsearch
+params={
+        'estimator__n_estimators': range(100, 1000, 100),  # example
+        etc.
+       }
+  
+
+# Run gridsearch to fine tune your hyperparameters
+Grid=GridSearch(pipe,param_grid=params,
+                scoring= ['neg_log_loss','roc_auc',],
+                return_train_score=True,
+                refit='roc_auc',    
+                cv= ???,
+                verbose=10, n_jobs=-1,
+               ).fit(X_train,y_train)
+
+# Cheack gridsearch results and decide on optimum hyperparameters
+
+# updated estimator after fine tuning
+uxg = XGBClassifier(random_state= ?,
+                          n_estimators= ?final value?,  
+                          etc.
+                   }
+
+# update pipeline
+pipe = Pipeline([('preprocess',preprocessor), ('estimator', uxgb)])
+
+# Fit final model
+pipe.fit(X_train, y_train)
+
+# Predict test data
+test_prob = pipe.predict_proba(X_test)
+
+Check results & compare
