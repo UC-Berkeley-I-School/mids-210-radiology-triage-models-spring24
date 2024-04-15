@@ -34,97 +34,7 @@ from torchvision import transforms
 from torchvision.transforms import functional
 
 ########################################################################################################################
-# Reduce the number of no_findings in dataset
-########################################################################################################################
-#img_path = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df/0a3b2835-17b1fb1b-f7e7e4a8-5f0de24e-cf4f111a.jpg'
-#img = cv2.imread(img_path)
-
-# Getting the dimensions of the image
-#height, width, channels = img.shape
-
-#print(f'The shape of the image is: {width}x{height}x{channels}')
-# # Load dataset
-# csv_file = pd.read_csv('Processed_Image_Data_Feb_28_2024.csv')
-# df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
-#
-# # Initialize the counter and the list for removal
-# no_findings_counter = 0
-# max_no_findings = 1800
-# remove_list = []
-#
-# # Iterate through the DataFrame
-# for index, row in csv_file.iterrows():
-#     items = []
-#     for i in range(2,8):
-#         t = int(row[i])
-#         items.append(t)
-#     if sum(items) == 0.0:  # Adjust indexes if needed
-#         no_findings_counter += 1
-#         # If the counter exceeds the maximum allowed 'no findings', add to remove list
-#         if no_findings_counter > max_no_findings:
-#             temp = (row[10])
-#             remove_list.append(temp)
-#     elif sum(items) > 1:
-#         temp = (row[10])
-#         remove_list.append(temp)
-#
-# print('Remove list size: ', len(remove_list))
-#
-# # Iterate over the list of images to drop
-# for image_name in remove_list:
-#     # Construct the full path to the image file
-#     image_path = os.path.join(df, image_name + '.jpg')
-#
-#     # Check if the file exists before attempting to delete it
-#     if os.path.exists(image_path):
-#         os.remove(image_path)
-#         print(f"Removed {image_path}")
-#     else:
-#         print(f"File {image_path} not found")
-
-########################################################################################################################
-# Re-split the dataset into test, training validation. 70,15,15 split
-########################################################################################################################
-
-# df = '/home/ai/PycharmProjects/radiologycastone/pythonProject2/df'
-# base_dir = '/home/ai/PycharmProjects/radiologycastone/pythonProject2'
-#
-# # Create subdirectories for the train, test, and validation splits
-# train_dir = os.path.join(base_dir, 'train')
-# test_dir = os.path.join(base_dir, 'test')
-# val_dir = os.path.join(base_dir, 'validation')
-#
-# os.makedirs(train_dir, exist_ok=True)
-# os.makedirs(test_dir, exist_ok=True)
-# os.makedirs(val_dir, exist_ok=True)
-#
-# # List all images in the original folder
-# images = [img for img in os.listdir(df) if img.endswith('.jpg')]
-#
-# # Split the images list into training (70%) and a temporary subset (30%)
-# train_images, temp_images = train_test_split(images, test_size=0.3, random_state=42)
-#
-# # Split the temporary subset into test and validation sets (50% each of the 30%)
-# test_images, val_images = train_test_split(temp_images, test_size=0.5, random_state=42)
-#
-# def copy_images(image_list, source_dir, target_dir):
-#     for image_name in image_list:
-#         source_path = os.path.join(source_dir, image_name)
-#         destination_path = os.path.join(target_dir, image_name)
-#         shutil.copy(source_path, destination_path)
-#
-# # Copy images to their respective directories
-# copy_images(train_images, df, train_dir)
-# copy_images(test_images, df, test_dir)
-# copy_images(val_images, df, val_dir)
-# #
-# # Optionally, print the number of images in each directory
-# print(f"Training set size: {len(os.listdir(train_dir))}")
-# print(f"Testing set size: {len(os.listdir(test_dir))}")
-# print(f"Validation set size: {len(os.listdir(val_dir))}")
-
-########################################################################################################################
-# create a dataset object and attaches labels to images
+# Preprocess and augment images
 ########################################################################################################################
 
 # Define the base transform
@@ -133,7 +43,7 @@ base_transform = transforms.Compose([
 ])
 
 
-def preprocess_images(path):
+def resize_images(path):
     first_image_printed = False
     for image_name in os.listdir(path):
         if not image_name.endswith('.jpg'):
@@ -144,12 +54,8 @@ def preprocess_images(path):
         image = base_transform(image)
         image.save(image_path)
 
-        if not first_image_printed:
-            print(f"The first image in {path} has been resized to: {image.size}")
-            first_image_printed = True
 
-
-def generate_csv_with_image_names(directories, csv_file_path):
+def generate_csv_with_only_image_names(directories, csv_file_path):
     # Define the columns for the new CSV file
     columns = ['image_name']
     rows = []
@@ -192,7 +98,6 @@ def generate_csv_with_set_images(directory, csv_path, num):
     else:
         val_df = pd.DataFrame(rows, columns=columns)
         val_df.to_csv(csv_path, index=False)
-
 
 
 def update_set_with_labels(og_csv_path, final_csv_path, updated_csv_path):
@@ -293,77 +198,89 @@ def append_csv_files(final_path, aug_path, full_train_path):
     print(f"Contents of {aug_path} have been appended to {final_path}.\n")
 
 
+def print_num_entries(img_csv, file_name):
+    df_all = pd.read_csv(img_csv)
+    num_entries = len(df_all)
+    print(f"The number of entries in the {file_name} file is: {num_entries}\n")
+
+
+og_csv_path = 'Processed_Image_Data_March_11_2024.csv'
+
 test = 'mimic_images_March_10_2024_Datasets/prep/test'
 train = 'mimic_images_March_10_2024_Datasets/prep/train'
 val = 'mimic_images_March_10_2024_Datasets/prep/val'
-train_bal = 'mimic_images_March_10_2024_Datasets/prep/train_4_bal_s'
+
 image_csv_path = 'mimic_images_March_10_2024_Datasets/prep/image.csv'
 train_csv_path = 'mimic_images_March_10_2024_Datasets/prep/train_image.csv'
 test_csv_path = 'mimic_images_March_10_2024_Datasets/prep/test_image.csv'
 val_csv_path = 'mimic_images_March_10_2024_Datasets/prep/val_image.csv'
-train_bal_path = 'mimic_images_March_10_2024_Datasets/prep/train_bal_image.csv'
-og_csv_path = 'Processed_Image_Data_March_11_2024.csv'
+
 train_label_path = 'mimic_images_March_10_2024_Datasets/prep/train_set_labeled.csv'
 test_label_path = 'mimic_images_March_10_2024_Datasets/prep/test_set_labeled.csv'
 val_label_path = 'mimic_images_March_10_2024_Datasets/prep/val_set_labeled.csv'
-train_bal_label_path ='mimic_images_March_10_2024_Datasets/prep/train_bal_labeled.csv'
+
 aug = 'mimic_images_March_10_2024_Datasets/prep/aug'
 aug_label_path = 'mimic_images_March_10_2024_Datasets/prep/aug_img.csv'
 full_train_path = 'mimic_images_March_10_2024_Datasets/prep/full_train_path.csv'
 
-# preprocess_images(test)
-# preprocess_images(train)
-# preprocess_images(val)
-# preprocess_images(train_bal)
-
+# Resize images
+# resize_images(test)
+# resize_images(train)
+# resize_images(val)
 print("Image resizing done")
 
-# # Generate the CSV file for all the images
-# generate_csv_with_image_names([train, test, val], image_csv_path)
-print("CSV file for all images has been generated.")
-df_all = pd.read_csv(image_csv_path)
-num_entries = len(df_all)
-print(f"The number of entries in the CSV file is: {num_entries}\n")
+# Generate the CSV file for all the images
+# generate_csv_with_only_image_names([train, test, val], image_csv_path)
+print_num_entries(image_csv_path, "ALL images")
 
-# # create CSV file with images, study_id and labels for train_bal
-# generate_csv_with_set_images(train_bal, train_bal_path, 1)
-# update_set_with_labels(og_csv_path, train_bal_path, train_bal_label_path)
-df_train_bal = pd.read_csv(train_bal_label_path)
-num_entries_train_bal = len(df_train_bal)
-print(f"The number of entries in the Train_Bal CSV with labels is: {num_entries_train_bal}\n")
+# create CSV file with images, study_id and labels for test
+# generate_csv_with_set_images(test, test_csv_path, 2)
+# update_set_with_labels(og_csv_path, test_csv_path, test_label_path)
+print_num_entries(test_label_path, "TEST images")
 
+# create CSV file with images, study_id and labels for val
+# generate_csv_with_set_images(val, val_csv_path, 3)
+# update_set_with_labels(og_csv_path, val_csv_path, val_label_path)
+print_num_entries(val_label_path, "VAL images")
+
+# FIXME: Uncomment to run and train with unbalanced dataset
 # # create CSV file with images, study_id and labels for train
 # generate_csv_with_set_images(train, train_csv_path, 1)
 # update_set_with_labels(og_csv_path, train_csv_path, train_label_path)
-df_train = pd.read_csv(train_label_path)
-num_entries_train = len(df_train)
-print(f"The number of entries in the Train CSV with labels is: {num_entries_train}\n")
-
-# # create CSV file with images, study_id and labels for test
-# generate_csv_with_set_images(test, test_csv_path, 2)
-# update_set_with_labels(og_csv_path, test_csv_path, test_label_path)
-df_test = pd.read_csv(test_label_path)
-num_entries_test = len(df_test)
-print(f"The number of entries in the Test CSV with labels is: {num_entries_test}\n")
-
-# # create CSV file with images, study_id and labels for val
-# generate_csv_with_set_images(val, val_csv_path, 3)
-# update_set_with_labels(og_csv_path, val_csv_path, val_label_path)
-dfval = pd.read_csv(val_label_path)
-num_entries_val = len(dfval)
-print(f"The number of entries in the Val CSV with labels is: {num_entries_val}\n")
-
+# print_num_entries(train_label_path, "TRAIN images")
+#
 # # augment and save images. Creat scv file containing labels
 # augment_images_and_create_csv(train, aug, aug_label_path)
-df_aug = pd.read_csv(aug_label_path)
-num_entries_aug = len(df_aug)
-print(f"The number of entries in the Aug CSV file is: {num_entries_aug}\n")
-
+# print_num_entries(aug_label_path, "AUG images")
+#
 # # append augmented data to og data
 # append_csv_files(train_label_path, aug_label_path, full_train_path)
-df_full_train = pd.read_csv(full_train_path)
-num_entries_full_train = len(df_full_train)
-print(f"The number of entries in the All_Train CSV file post append is: {num_entries_full_train}")
+# print_num_entries(full_train_path, "Full train images")
+
+# FIXME: uncomment to run and train with balanced dataset
+# Same as above but for balanced dataset
+train_bal = 'mimic_images_March_10_2024_Datasets/prep/train_4_bal_s'
+train_bal_path = 'mimic_images_March_10_2024_Datasets/prep/train_bal_image.csv'
+train_bal_label_path = 'mimic_images_March_10_2024_Datasets/prep/train_bal_labeled.csv'
+
+# resize_images(train_bal)
+
+# create CSV file with images, study_id and labels for train_bal
+# generate_csv_with_set_images(train_bal, train_bal_path, 1)
+# update_set_with_labels(og_csv_path, train_bal_path, train_bal_label_path)
+print_num_entries(train_bal_label_path, "TRAIN balanced images")
+
+# augment and save images. Creat scv file containing labels
+# augment_images_and_create_csv(train_bal, aug, aug_label_path)
+print_num_entries(aug_label_path, "AUG images")
+
+# append augmented data to og data
+# append_csv_files(train_bal_label_path, aug_label_path, full_train_path)
+print_num_entries(full_train_path, "Full train images")
+
+########################################################################################################################
+# create a dataset object and attaches labels to images
+########################################################################################################################
 
 loader_transform = transforms.Compose([
     transforms.ToTensor(),
@@ -425,14 +342,17 @@ else:
 
     # Calculate weights: more weight to 'no_findings' == 1 samples
     weights = np.ones_like(no_findings_labels)
-    weights[no_findings_labels == 1] = 10  # Adjust this weight as necessary
+    weights[no_findings_labels == 1] = 2  # Adjust this weight as necessary
 
     # Create a WeightedRandomSampler
     sampler = WeightedRandomSampler(weights, len(weights))
 
     print('Finished removing None types for train dataset')
 
+    # FIXME: uncomment for unbalanced
     train_loader = DataLoader(train_dataset, batch_size=32, sampler=sampler, shuffle=False)
+
+    # FIXME: uncomment for balanced
     # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 
     with open('train_loader.pkl', 'wb') as f:
@@ -471,9 +391,21 @@ else:
                                              root_dir='mimic_images_March_10_2024_Datasets/prep/val',
                                              transform=loader_transform)
 
+    print('Removing None types for train dataset, this will take a long time.')
+    indices = [1, 2, 3, 4]
     validation_dataset = [data for data in validation_dataset if data is not None]
+    no_findings_labels = np.array([1 if sum([sample[2][i] for i in indices]) == 1 else 0 for sample in validation_dataset])
 
-    validation_loader = DataLoader(validation_dataset, batch_size=32, shuffle=False)
+    # Calculate weights: more weight to 'no_findings' == 1 samples
+    val_weights = np.ones_like(no_findings_labels)
+    val_weights[no_findings_labels == 1] = 5  # Adjust this weight as necessary
+
+    # Create a WeightedRandomSampler
+    val_sampler = WeightedRandomSampler(val_weights, len(val_weights))
+
+    # validation_dataset = [data for data in validation_dataset if data is not None]
+
+    validation_loader = DataLoader(validation_dataset, sampler=val_sampler, batch_size=32, shuffle=False)
 
     # Save the DataLoader objects
     with open('validation_loader.pkl', 'wb') as f:
@@ -657,126 +589,6 @@ class_weights_tensor = torch.FloatTensor(class_weights).cuda() if torch.cuda.is_
     else torch.FloatTensor(class_weights)
 
 ########################################################################################################################
-# Uncomment to choose custom CNN
-########################################################################################################################
-
-# class DeepCNN(nn.Module):
-#     def __init__(self, num_classes):
-#         super(DeepCNN, self).__init__()
-#         self.features = nn.Sequential(
-#             # Conv Layer block 1
-#             nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(32),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(64),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=2, stride=2),
-#
-#             # Conv Layer block 2
-#             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(128),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(128),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=2, stride=2),
-#
-#             # Conv Layer block 3
-#             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(256),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1),
-#             nn.BatchNorm2d(256),  # Batch Normalization after convolutions
-#             nn.ReLU(inplace=True),
-#             nn.MaxPool2d(kernel_size=2, stride=2),
-#         )
-#
-#         self._to_linear = None
-#
-#         self._get_conv_output([1, 3, 224, 224])  # Example size [batch_size, channels, height, width]
-#
-#         self.classifier = nn.Sequential(
-#             nn.Dropout(p=0.5),
-#             nn.Linear(self._to_linear, 1024),  # The first value is now dynamically assigned
-#             nn.ReLU(inplace=True),
-#             nn.Linear(1024, 512),
-#             nn.ReLU(inplace=True),
-#             nn.Dropout(p=0.5),
-#             nn.Linear(512, num_classes),
-#         )
-
-
-#
-#     # Method to calculate the output feature size of convolutions
-#     def _get_conv_output(self, shape):
-#         input = torch.autograd.Variable(torch.rand(shape))
-#         output_feat = self.features(input)
-#         self._to_linear = output_feat.data.view(1, -1).size(1)
-#
-#     def forward(self, x):
-#         # Convolutional layers...
-#         x = self.features(x)
-#         x = x.view(x.size(0), -1)
-#         # Fully connected layers...
-#         x = self.classifier(x)
-#         return x
-#
-#
-# # Assuming you are using 224x224 images, the input feature to the first FC layer needs to be adjusted.
-# # If not, calculate the size of the feature maps after the last pooling layer and adjust accordingly.
-#
-# # Initialize the model
-# model = DeepCNN(num_classes=5)
-#
-# # Initialize the optimizer
-# optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-#
-# criterion = FocalLoss(alpha=1, gamma=2, logits=True, reduce='mean')
-
-########################################################################################################################
-# Uncomment to choose ResNet-18
-########################################################################################################################
-#
-# # Initialize ResNet-18 with pre-trained weights
-# weights = ResNet18_Weights.IMAGENET1K_V1
-# model = models.resnet18(weights=weights)
-
-# num_ftrs = model.fc.in_features
-# model.fc = nn.Linear(num_ftrs, 7)  # Adjusting for 6 output classes
-
-# # Unfreeze layer4 and layer3 parameters
-# for param in model.layer4.parameters():
-#     param.requires_grad = True
-#
-# for param in model.layer3.parameters():
-#     param.requires_grad = True
-
-# # Define your optimization and loss function here
-# optimizer = optim.Adam([
-#     {'params': model.layer3.parameters()},
-#     {'params': model.layer4.parameters()},
-#     {'params': model.fc.parameters()}
-# ], lr=0.001, weight_decay=1e-5)
-
-########################################################################################################################
-# Uncomment to choose DenseNet-121
-########################################################################################################################
-#
-# # Load a pre-trained DenseNet121
-# model = models.densenet121(pretrained=True)
-#
-# num_features = model.classifier.in_features
-# model.classifier = nn.Linear(num_features, 5)
-#
-# # Freeze all layers in the network
-# for param in model.parameters():
-#     param.requires_grad = False
-#
-# optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-# criterion = nn.CrossEntropyLoss()
-
-########################################################################################################################
 # Uncomment to choose EfficientNet-B3
 ########################################################################################################################
 
@@ -903,7 +715,7 @@ for epoch in range(num_epochs):
     scheduler.step()
 
 # FIXME: Edit to save under the correct model
-torch.save(model, 'EfficientNet-B3-Unb.pth')
+torch.save(model, 'EfficientNet-B3-Bal.pth')
 
 ########################################################################################################################
 # visualize results
@@ -946,7 +758,7 @@ fpr = dict()
 tpr = dict()
 roc_auc = dict()
 
-# Assuming 'all_val_preds' are the predicted probabilities for each class
+# the predicted probabilities for each class
 for i in range(n_classes):
     fpr[i], tpr[i], _ = roc_curve(y_bin[:, i], all_val_preds[:, i])
     roc_auc[i] = auc(fpr[i], tpr[i])
@@ -1034,7 +846,7 @@ model.eval()  # Set the model to evaluation mode
 dummy_input = torch.randn(1, 3, 256, 256, device='cuda')
 
 # Specify the name of the ONNX file
-output_onnx_file = 'EfficientNet-B3_Model.onnx'
+output_onnx_file = 'EfficientNet-B3_Model_balanced.onnx'
 
 # Export the model to an ONNX file
 torch.onnx.export(model,
